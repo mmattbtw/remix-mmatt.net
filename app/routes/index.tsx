@@ -1,5 +1,5 @@
 import { Button, Collapse, Container, Grid, Image } from '@mantine/core';
-import { json, MetaFunction } from '@remix-run/node';
+import { deferred, MetaFunction } from '@remix-run/node';
 import { Link, useLoaderData } from '@remix-run/react';
 import LastFm from '@toplast/lastfm';
 import { useState } from 'react';
@@ -14,48 +14,33 @@ interface discogsReturn {
     lastFmData: any;
 }
 
-const globalAny: any = global;
-
-let cached: discogsReturn = globalAny.DISCOGS_DATA;
-
 // I HATE THIS, ITS SLOW AN INEFFICIENT (AT LEAST ON VERCEL) MAYBE EDGE FUNCTION MOMENT? IDK
 export async function loader() {
     const lastFm = new LastFm(`${process.env.LASTFM_API_KEY}`);
+    const discogsHeaders = {
+        Authorization: `Discogs token=${process.env.DISCOGS_TOKEN}`,
+    };
 
-    if (cached) {
-        return json(cached);
-    } else {
-        const discogsHeaders = {
-            Authorization: `Discogs token=${process.env.DISCOGS_TOKEN}`,
-        };
+    try {
+        let [collectionValue, collectionData, lastfmData] = await Promise.all([
+            fetch('https://api.discogs.com/users/mmattbtw/collection/value', { headers: discogsHeaders }),
+            fetch('https://api.discogs.com/users/mmattbtw/collection/folders/0/releases?sort=added&sort_order=asc', { headers: discogsHeaders }),
+            lastFm.user.getTopArtists({ user: 'mmattbtw', limit: 20 }),
+        ]);
 
-        try {
-            let [collectionValue, collectionData, lastfmData] = await Promise.all([
-                fetch('https://api.discogs.com/users/mmattbtw/collection/value', { headers: discogsHeaders }),
-                fetch('https://api.discogs.com/users/mmattbtw/collection/folders/0/releases?sort=added&sort_order=asc', { headers: discogsHeaders }),
-                lastFm.user.getTopArtists({ user: 'mmattbtw', limit: 20 }),
-            ]);
+        let [collectionValueData, collectionDataData] = await Promise.all([collectionValue.json(), collectionData.json()]);
 
-            let [collectionValueData, collectionDataData] = await Promise.all([collectionValue.json(), collectionData.json()]);
-
-            cached = globalAny.DISCOGS_DATA = {
-                collectionValue: collectionValueData,
-                collectionData: collectionDataData,
-                lastFmData: lastfmData,
-            };
-
-            return json({
-                collectionValue: collectionValueData,
-                collectionData: collectionDataData,
-                lastFmData: lastfmData,
-            });
-        } catch (FetchError) {
-            return json({
-                collectionValue: null,
-                collectionData: null,
-                lastFmData: null,
-            });
-        }
+        return deferred({
+            collectionValue: collectionValueData,
+            collectionData: collectionDataData,
+            lastFmData: lastfmData,
+        });
+    } catch (FetchError) {
+        return deferred({
+            collectionValue: null,
+            collectionData: null,
+            lastFmData: null,
+        });
     }
 }
 
